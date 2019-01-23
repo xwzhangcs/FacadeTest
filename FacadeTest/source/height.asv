@@ -1,0 +1,3 @@
+clear
+data = xlsread('height_info.xlsx');
+histogram(data,)
