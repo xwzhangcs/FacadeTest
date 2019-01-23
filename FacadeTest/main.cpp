@@ -19,7 +19,7 @@ using namespace std;
 /// Global variables
 
 int threshold_value = 0;
-int threshold_type = 3;;
+int threshold_type = 0;;
 int const max_value = 255;
 int const max_type = 4;
 int const max_BINARY_value = 255;
@@ -32,30 +32,39 @@ char* trackbar_value = "Value";
 
 /// Function headers
 void Threshold_Demo(int, void*);
-
+void Threshold_Demo(int threshold_type, int threshold, char* output);
 /**
 * @function main
 */
 int main(int argc, char** argv)
 {
+	// 4:101
+	// 1: 90
+	// 2: 89
+	// hist equalized
+	/*cv::Mat src, dst;
+	src = cv::imread("../data/4.png", 1);
+	/// Convert to grayscale
+	cvtColor(src, src, CV_BGR2GRAY);
+
+	/// Apply Histogram Equalization
+	equalizeHist(src, dst);
+	cv::imwrite("../data/equalized_4.png", dst);*/
 	/// Load an image
-	src_gray = imread("../data/equalized_1.png", 0);
+	src_gray = imread("../data/equalized_4.png", 0);
 
 	/// Create a window to display results
 	namedWindow(window_name, CV_WINDOW_AUTOSIZE);
 
 	/// Create Trackbar to choose type of Threshold
-	createTrackbar(trackbar_type,
+	/*createTrackbar(trackbar_type,
 		window_name, &threshold_type,
 		max_type, Threshold_Demo);
 
 	createTrackbar(trackbar_value,
 		window_name, &threshold_value,
 		max_value, Threshold_Demo);
-
-	/// Call the function to initialize
 	Threshold_Demo(0, 0);
-
 	/// Wait until user finishes program
 	while (true)
 	{
@@ -65,7 +74,9 @@ int main(int argc, char** argv)
 		{
 			break;
 		}
-	}
+	}*/
+
+	Threshold_Demo(0, 101, "../data/output_4.png");
 
 }
 
@@ -85,6 +96,13 @@ void Threshold_Demo(int, void*)
 	threshold(src_gray, dst, threshold_value, max_BINARY_value, threshold_type);
 
 	imshow(window_name, dst);
+}
+
+void Threshold_Demo(int threshold_type, int threshold, char* output){
+
+	cv::threshold(src_gray, dst, threshold, max_BINARY_value, threshold_type);
+	imshow(window_name, dst);
+	cv::imwrite(output, dst);
 }
 
 void correct(cv::Mat &img){
