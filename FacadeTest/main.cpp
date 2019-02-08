@@ -24,7 +24,7 @@ int const max_value = 255;
 int const max_type = 4;
 int const max_BINARY_value = 255;
 
-Mat src, src_gray, dst;
+cv::Mat src, src_gray, dst;
 char* window_name = "Threshold Demo";
 
 char* trackbar_type = "Type:";
@@ -38,26 +38,26 @@ void Threshold_Demo(int threshold_type, int threshold, char* output);
 */
 int main(int argc, char** argv)
 {
-	// 4:101
-	// 1: 90
-	// 2: 89
 	// hist equalized
-	/*cv::Mat src, dst;
-	src = cv::imread("../data/4.png", 1);
-	/// Convert to grayscale
-	cvtColor(src, src, CV_BGR2GRAY);
-
-	/// Apply Histogram Equalization
-	equalizeHist(src, dst);
-	cv::imwrite("../data/equalized_4.png", dst);*/
+	cv::Mat src, dst;
+	std::cout << "argv[1] is " << argv[1] << std::endl;
+	src = cv::imread(argv[1], 1);
+	//Convert pixel values to other color spaces.
+	cv::Mat hsv;
+	cvtColor(src, hsv, COLOR_BGR2HSV);
+	std::vector<cv::Mat> bgr;   //destination array
+	cv::split(hsv, bgr);//split source 
+	for (int i = 0; i < 3; i++)
+		cv::equalizeHist(bgr[i], bgr[i]);
+	//cv::merge(bgr, dst);	
 	/// Load an image
-	src_gray = imread("../data/equalized_4.png", 0);
+	src_gray = bgr[2];
 
 	/// Create a window to display results
 	namedWindow(window_name, CV_WINDOW_AUTOSIZE);
 
 	/// Create Trackbar to choose type of Threshold
-	/*createTrackbar(trackbar_type,
+	createTrackbar(trackbar_type,
 		window_name, &threshold_type,
 		max_type, Threshold_Demo);
 
@@ -74,9 +74,9 @@ int main(int argc, char** argv)
 		{
 			break;
 		}
-	}*/
+	}
 
-	Threshold_Demo(0, 101, "../data/output_4.png");
+	//Threshold_Demo(THRESH_BINARY, 32, "../data/output_8.png");
 
 }
 
