@@ -32,7 +32,9 @@ char* trackbar_value = "Value";
 
 /// Function headers
 void Threshold_Demo(int, void*);
-void Threshold_Demo(int threshold_type, int threshold, char* output);
+void Threshold_Demo(int threshold_type, int threshold, string output);
+/// Function header
+std::vector<string> get_all_files_names_within_folder(string folder);
 /**
 * @function main
 */
@@ -41,43 +43,52 @@ int main(int argc, char** argv)
 	// hist equalized
 	cv::Mat src, dst;
 	std::cout << "argv[1] is " << argv[1] << std::endl;
-	src = cv::imread(argv[1], 1);
-	//Convert pixel values to other color spaces.
-	cv::Mat hsv;
-	cvtColor(src, hsv, COLOR_BGR2HSV);
-	std::vector<cv::Mat> bgr;   //destination array
-	cv::split(hsv, bgr);//split source 
-	for (int i = 0; i < 3; i++)
-		cv::equalizeHist(bgr[i], bgr[i]);
-	//cv::merge(bgr, dst);	
-	/// Load an image
-	src_gray = bgr[2];
+	// get all files from the folder
+	/// Function header
+	std::vector<string> names = get_all_files_names_within_folder(argv[1]);
+	for (int i = 0; i < names.size(); i++){
+		src = cv::imread(argv[1] + names[i], CV_LOAD_IMAGE_COLOR);
+		//Convert pixel values to other color spaces.
+		cv::Mat hsv;
+		cvtColor(src, hsv, COLOR_BGR2HSV);
+		std::vector<cv::Mat> bgr;   //destination array
+		cv::split(hsv, bgr);//split source 
+		for (int i = 0; i < 3; i++)
+			cv::equalizeHist(bgr[i], bgr[i]);
+		//cv::merge(bgr, dst);	
+		/// Load an image
+		src_gray = bgr[2];
 
-	/// Create a window to display results
-	namedWindow(window_name, CV_WINDOW_AUTOSIZE);
+		/// Create a window to display results
+		namedWindow(window_name, CV_WINDOW_AUTOSIZE);
 
-	/// Create Trackbar to choose type of Threshold
-	createTrackbar(trackbar_type,
-		window_name, &threshold_type,
-		max_type, Threshold_Demo);
+		/// Create Trackbar to choose type of Threshold
+		createTrackbar(trackbar_type,
+			window_name, &threshold_type,
+			max_type, Threshold_Demo);
 
-	createTrackbar(trackbar_value,
-		window_name, &threshold_value,
-		max_value, Threshold_Demo);
-	Threshold_Demo(0, 0);
-	/// Wait until user finishes program
-	while (true)
-	{
-		int c;
-		c = waitKey(20);
-		if ((char)c == 27)
+		createTrackbar(trackbar_value,
+			window_name, &threshold_value,
+			max_value, Threshold_Demo);
+		Threshold_Demo(0, 0);
+		/// Wait until user finishes program
+		while (true)
 		{
-			break;
+			int c;
+			c = waitKey(20);
+			if ((char)c == 27)
+			{
+				char buffer[10];
+				std::cout << "threshold_value is " << threshold_value << std::endl;
+				argv[2] + std::to_string(i) + "_";
+				//std::strcat(argv[2], _itoa(threshold_value, buffer, 10));
+				//std::strcat(argv[2], ".png");
+				//std::cout << "argv[2] is " << threshold_value << std::endl;
+				Threshold_Demo(THRESH_BINARY, threshold_value, argv[2] + std::to_string(i) + "_" + std::to_string(threshold_value) + ".png");
+				break;
+			}
 		}
 	}
-
-	//Threshold_Demo(THRESH_BINARY, 32, "../data/output_8.png");
-
 }
 
 
@@ -98,7 +109,7 @@ void Threshold_Demo(int, void*)
 	imshow(window_name, dst);
 }
 
-void Threshold_Demo(int threshold_type, int threshold, char* output){
+void Threshold_Demo(int threshold_type, int threshold, string output){
 
 	cv::threshold(src_gray, dst, threshold, max_BINARY_value, threshold_type);
 	imshow(window_name, dst);
@@ -126,4 +137,24 @@ void correct(cv::Mat &img){
 			}
 		}
 	}
+}
+
+
+std::vector<string> get_all_files_names_within_folder(string folder)
+{
+	vector<string> names;
+	string search_path = folder + "/*.*";
+	WIN32_FIND_DATA fd;
+	HANDLE hFind = ::FindFirstFile(search_path.c_str(), &fd);
+	if (hFind != INVALID_HANDLE_VALUE) {
+		do {
+			// read all (real) files in current folder
+			// , delete '!' read other 2 default folder . and ..
+			if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+				names.push_back(fd.cFileName);
+			}
+		} while (::FindNextFile(hFind, &fd));
+		::FindClose(hFind);
+	}
+	return names;
 }
