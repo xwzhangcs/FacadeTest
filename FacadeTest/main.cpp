@@ -11,6 +11,11 @@
 #include "cpl_conv.h" // for CPLMalloc()
 #include "ogrsf_frmts.h"
 #include <time.h> 
+#include "../rapidjson/document.h"
+#include "../rapidjson/writer.h"
+#include "../rapidjson/stringbuffer.h"
+#include "../rapidjson/filereadstream.h"
+#include "../rapidjson/filewritestream.h"
 
 using namespace cv;
 using namespace std;
@@ -37,12 +42,58 @@ void Threshold_Demo(int threshold_type, int threshold, string output);
 std::vector<string> get_all_files_names_within_folder(string folder);
 float compute_win_percentage(string img_name);
 void find_threshold(string img_name);
+double readNumber(const rapidjson::Value& node, const char* key, double default_value) {
+	if (node.HasMember(key) && node[key].IsDouble()) {
+		return node[key].GetDouble();
+	}
+	else if (node.HasMember(key) && node[key].IsInt()) {
+		return node[key].GetInt();
+	}
+	else {
+		return default_value;
+	}
+}
+
+std::vector<double> read1DArray(const rapidjson::Value& node, const char* key) {
+	std::vector<double> array_values;
+	if (node.HasMember(key)) {
+		const rapidjson::Value& data = node[key];
+		array_values.resize(data.Size());
+		for (int i = 0; i < data.Size(); i++)
+			array_values[i] = data[i].GetDouble();
+		return array_values;
+	}
+	else {
+		return array_values;
+	}
+}
+
+bool readBoolValue(const rapidjson::Value& node, const char* key, bool default_value) {
+	if (node.HasMember(key) && node[key].IsBool()) {
+		return node[key].GetBool();
+	}
+	else {
+		return default_value;
+	}
+}
+
+std::string readStringValue(const rapidjson::Value& node, const char* key) {
+	if (node.HasMember(key) && node[key].IsString()) {
+		return node[key].GetString();
+	}
+	else {
+		throw "Could not read string from node";
+	}
+}
+
+void generate_score_file(std::string metafiles, std::string output_path);
+
 /**
 * @function main
 */
 int main(int argc, char** argv)
 {
-	find_threshold("../data/2.png");
+	generate_score_file("../data/metadata", "../data");
 	return 0;
 	// hist equalized
 	cv::Mat src, dst;
@@ -91,6 +142,43 @@ int main(int argc, char** argv)
 				break;
 			}
 		}
+	}
+}
+
+void generate_score_file(std::string meta_folder, std::string output_path){
+	std::vector<string> metafiles = get_all_files_names_within_folder(meta_folder);
+	std::ofstream out_param(output_path + "/parameters.txt");
+	for (int i = 0; i < metafiles.size(); i++){
+		std::string metafileName = meta_folder + "/" + metafiles[i];
+		// read score
+		// read image json file
+		FILE* fp = fopen(metafileName.c_str(), "rb"); // non-Windows use "r"
+		char readBuffer[1024];
+		rapidjson::FileReadStream is(fp, readBuffer, sizeof(readBuffer));
+		rapidjson::Document doc;
+		doc.ParseStream(is);
+		// score
+		double score = readNumber(doc, "score", 0.2);
+		// size of chip
+		std::vector<double> facChip_size = read1DArray(doc, "size");
+		// image of the chip
+		std::string img_fileName = readStringValue(doc, "imagename");
+		std::size_t found = img_fileName.find_first_of("/");
+		// write to parameters.txt
+		{
+			// normalize for NN training
+			out_param << metafiles[i];
+			out_param << ",";
+			out_param << img_fileName.substr(found + 1);
+			out_param << ",";
+			out_param << score;
+			out_param << ",";
+			out_param << facChip_size[0];
+			out_param << ",";
+			out_param << facChip_size[1];
+			out_param << "\n";
+		}
+		fclose(fp);
 	}
 }
 
