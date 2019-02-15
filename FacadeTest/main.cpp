@@ -88,12 +88,16 @@ std::string readStringValue(const rapidjson::Value& node, const char* key) {
 
 void generate_score_file(std::string metafiles, std::string output_path);
 
+void reshape_chips(std::string meta_data, double target_width, double target_height);
+
+void find_avg_colors(std::string filename);
 /**
 * @function main
 */
 int main(int argc, char** argv)
 {
-	generate_score_file("../data/metadata", "../data");
+	//reshape_chips("../data/0005_0031.json", 30.0, 30.0);
+	//generate_score_file("../data/metadata", "../data");
 	return 0;
 	// hist equalized
 	cv::Mat src, dst;
@@ -142,6 +146,170 @@ int main(int argc, char** argv)
 				break;
 			}
 		}
+	}
+}
+
+void find_avg_colors(std::string src_filename, std::string classify_filename, std::string dst_filename, std::string output_filename){
+	cv::Mat dst_classify = cv::imread(classify_filename, CV_LOAD_IMAGE_GRAYSCALE);
+	cv::Mat src = cv::imread(src_filename, CV_LOAD_IMAGE_COLOR);
+	cv::Scalar bg_avg_color(0, 0, 0);
+	cv::Scalar win_avg_color(0, 0, 0);
+	int bg_count = 0;
+	int win_count = 0;
+	for (int i = 0; i < dst_classify.size().height; i++){
+		for (int j = 0; j < dst_classify.size().width; j++){
+			if ((int)dst_classify.at<uchar>(i, j) == 0){
+				win_avg_color.val[0] += src.at<cv::Vec3b>(i, j)[0];
+				win_avg_color.val[1] += src.at<cv::Vec3b>(i, j)[1];
+				win_avg_color.val[2] += src.at<cv::Vec3b>(i, j)[2];
+				win_count++;
+			}
+			else{
+				bg_avg_color.val[0] += src.at<cv::Vec3b>(i, j)[0];
+				bg_avg_color.val[1] += src.at<cv::Vec3b>(i, j)[1];
+				bg_avg_color.val[2] += src.at<cv::Vec3b>(i, j)[2];
+				bg_count++;
+			}
+		}
+	}
+	win_avg_color.val[0] = win_avg_color.val[0] / win_count;
+	win_avg_color.val[1] = win_avg_color.val[1] / win_count;
+	win_avg_color.val[2] = win_avg_color.val[2] / win_count;
+
+	bg_avg_color.val[0] = bg_avg_color.val[0] / bg_count;
+	bg_avg_color.val[1] = bg_avg_color.val[1] / bg_count;
+	bg_avg_color.val[2] = bg_avg_color.val[2] / bg_count;
+
+	std::cout << "win_avg_color is " << win_avg_color << std::endl;
+	std::cout << "bg_avg_color is " << bg_avg_color << std::endl;
+	// generate a test image
+	cv::Mat result(dst_classify.size().height, dst_classify.size().width, CV_8UC3);
+	for (int i = 0; i < dst_classify.size().height; i++){
+		for (int j = 0; j < dst_classify.size().width; j++){
+			if ((int)dst_classify.at<uchar>(i, j) == 0){
+				result.at<cv::Vec3b>(i, j)[0] = win_avg_color.val[0];
+				result.at<cv::Vec3b>(i, j)[1] = win_avg_color.val[1];
+				result.at<cv::Vec3b>(i, j)[2] = win_avg_color.val[2];
+			}
+			else{
+				result.at<cv::Vec3b>(i, j)[0] = bg_avg_color.val[0];
+				result.at<cv::Vec3b>(i, j)[1] = bg_avg_color.val[1];
+				result.at<cv::Vec3b>(i, j)[2] = bg_avg_color.val[2];
+			}
+		}
+	}
+	cv::imwrite("../data/result.png", result);
+}
+
+void reshape_chips(std::string meta_data, double target_width, double target_height){
+	// read image json file
+	FILE* fp = fopen(meta_data.c_str(), "rb"); // non-Windows use "r"
+	char readBuffer[1024];
+	rapidjson::FileReadStream is(fp, readBuffer, sizeof(readBuffer));
+	rapidjson::Document doc;
+	doc.ParseStream(is);
+	// score
+	double score = readNumber(doc, "score", 0.2);
+	std::cout << "score is " << score << std::endl;
+	// size of chip
+	std::vector<double> facChip_size = read1DArray(doc, "size");
+	std::cout << "facChip_size is " << facChip_size[0] << ", " << facChip_size[1] << std::endl;
+	// image name
+	std::string img_fileName = readStringValue(doc, "imagename");
+	std::size_t found = img_fileName.find_first_of("/");
+	img_fileName = "../data/" + img_fileName.substr(found + 1);
+	std::cout << "img_fileName is " << img_fileName << std::endl;
+
+	int type = 0;
+	if (facChip_size[0] < 30.0 && facChip_size[1] < 30.0 && score > 0.8)
+		type = 1;
+	else if (facChip_size[0] > 30.0 && facChip_size[1] < 30.0 && score > 0.7)
+		type = 2;
+	else if (facChip_size[0] < 30.0 && facChip_size[1] > 30.0 && score > 0.7)
+		type = 3;
+	else if (facChip_size[0] > 30.0 && facChip_size[1] > 30.0 && score > 0.3)
+		type = 4;
+	else {
+		// do nothing
+	}
+	double ratio_width, ratio_height;
+	if (type == 1){
+		src = imread(img_fileName);
+		ratio_width = target_width / facChip_size[0] - 1;
+		ratio_height = target_height / facChip_size[1] - 1;
+		std::cout << "ratio_width is " << ratio_width << std::endl;
+		std::cout << "ratio_height is " << ratio_height << std::endl;
+		int top = (int)(ratio_height * src.rows);
+		int bottom = 0;
+		int left = 0; 
+		int right = (int)(ratio_width * src.cols);
+		int borderType = BORDER_REFLECT_101;
+		cv::Scalar value(0, 0, 0);
+		cv::copyMakeBorder(src, dst, top, bottom, left, right, borderType, value);
+		cv::imwrite("../data/test.png", dst);
+	}
+	else if (type == 2){
+		src = imread(img_fileName);
+		int times = ceil(facChip_size[0] / target_width);
+		ratio_width = (times * target_width - facChip_size[0]) / facChip_size[0];
+		ratio_height = target_height / facChip_size[1] - 1;
+		std::cout << "ratio_width is " << ratio_width << std::endl;
+		std::cout << "ratio_height is " << ratio_height << std::endl;
+		int top = (int)(ratio_height * src.rows);
+		int bottom = 0;
+		int left = 0;
+		int right = (int)(ratio_width * src.cols);
+		int borderType = BORDER_REFLECT_101;
+		cv::Scalar value(0, 0, 0);
+		cv::copyMakeBorder(src, dst, top, bottom, left, right, borderType, value);
+		cv::imwrite("../data/test.png", dst);
+		// crop 30 * 30
+		cv::Mat croppedImage = dst(cv::Rect(dst.size().width * 0.1, 0, dst.size().width / times, dst.size().height));
+		cv::imwrite("../data/test_cropped.png", croppedImage);
+	}
+	else if (type == 3){
+		src = imread(img_fileName);
+		int times = ceil(facChip_size[1] / target_height);
+		ratio_height = (times * target_height - facChip_size[1]) / facChip_size[1];
+		ratio_width = target_width / facChip_size[0] - 1;
+		std::cout << "ratio_width is " << ratio_width << std::endl;
+		std::cout << "ratio_height is " << ratio_height << std::endl;
+		int top = (int)(ratio_height * src.rows);
+		int bottom = 0;
+		int left = 0;
+		int right = (int)(ratio_width * src.cols);
+		int borderType = BORDER_REFLECT_101;
+		cv::Scalar value(0, 0, 0);
+		cv::copyMakeBorder(src, dst, top, bottom, left, right, borderType, value);
+		cv::imwrite("../data/test.png", dst);
+		// crop 30 * 30
+		cv::Mat croppedImage = dst(cv::Rect(0, ratio_height * src.rows, dst.size().width, dst.size().height / times));
+		cv::imwrite("../data/test_cropped.png", croppedImage);
+	}
+	else if (type == 4){
+		src = imread(img_fileName);
+		int times_width = ceil(facChip_size[0] / target_width);
+		int times_height = ceil(facChip_size[1] / target_height);
+		ratio_width = (times_width * target_width - facChip_size[0]) / facChip_size[0];
+		ratio_height = (times_height * target_height - facChip_size[1]) / facChip_size[1];
+		std::cout << "ratio_width is " << ratio_width << std::endl;
+		std::cout << "ratio_height is " << ratio_height << std::endl;
+		int top = (int)(ratio_height * src.rows);
+		int bottom = 0;
+		int left = 0;
+		int right = (int)(ratio_width * src.cols);
+		int borderType = BORDER_REFLECT_101;
+		cv::Scalar value(0, 0, 0);
+		cv::copyMakeBorder(src, dst, top, bottom, left, right, borderType, value);
+		cv::imwrite("../data/test.png", dst);
+		// crop 30 * 30
+		for (int slice = 0; slice < times_height; slice++){
+			cv::Mat croppedImage = dst(cv::Rect(dst.size().width * 0.1, ratio_height * src.rows, dst.size().width / times_width, dst.size().height / times_height));
+			cv::imwrite("../data/test_cropped.png", croppedImage);
+		}
+	}
+	else{
+		// do nothing
 	}
 }
 
