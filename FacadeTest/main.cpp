@@ -93,8 +93,9 @@ void reshape_chips(std::string meta_data, double target_width, double target_hei
 
 void find_avg_colors(std::string filename);
 
-std::vector<double> compute_distribution_l1(cv::Mat img);
+std::vector<double> compute_distribution_l1(cv::Mat img, int index);
 std::vector<double> compute_distribution_l2(cv::Mat img);
+cv::Mat draw_grids(cv::Mat img, int level);
 
 std::pair<double, double> compute_stats(std::vector<double> v){
 	double sum = std::accumulate(std::begin(v), std::end(v), 0.0);
@@ -117,9 +118,6 @@ int main(int argc, char** argv)
 {
 	//reshape_chips("../data/0005_0031.json", 30.0, 30.0);
 	//generate_score_file("../data/metadata", "../data");
-	/*cv::Mat img = cv::imread("../data/1.png");
-	cv::Mat result = compute_distribution_l2(img);
-	cv::imwrite("../data/1_output.png", result);*/
 	return 0;
 	// hist equalized
 	cv::Mat src, dst;
@@ -171,47 +169,69 @@ int main(int argc, char** argv)
 	}
 }
 
-//std::pair<double, double> compute_distribution_l1(cv::Mat img){
-//	int thickness = 1;
-//	int lineType = 8;
-//	cv::Point l1_start(0, img.size().height * 0.5);
-//	cv::Point l1_end(img.size().width, img.size().height * 0.5);
-//	cv::line(img,
-//		l1_start,
-//		l1_end,
-//		cv::Scalar(0, 0, 255),
-//		thickness,
-//		lineType);
-//	cv::Point l2_start(img.size().width * 0.5, 0);
-//	cv::Point l2_end(img.size().width * 0.5, img.size().height);
-//	cv::line(img,
-//		l2_start,
-//		l2_end,
-//		cv::Scalar(0, 0, 255),
-//		thickness,
-//		lineType);
-//	return img;
-//}
+cv::Mat draw_grids(cv::Mat img, int level){
+	int thickness = 1;
+	int lineType = 8;
+	int segs = (int)pow(2, level);
+	for (int i = 1; i < (int)pow(2, level); i++){
+		cv::Point l1_start(0, i * img.size().height / segs);
+		cv::Point l1_end(img.size().width, i * img.size().height / segs);
+		cv::line(img,
+			l1_start,
+			l1_end,
+			cv::Scalar(0, 0, 255),
+			thickness,
+			lineType);
+	}
+	for (int i = 1; i < (int)pow(2, level); i++){
+		cv::Point l1_start(i * img.size().width / segs, 0);
+		cv::Point l1_end(i * img.size().width / segs, img.size().height);
+		cv::line(img,
+			l1_start,
+			l1_end,
+			cv::Scalar(0, 0, 255),
+			thickness,
+			lineType);
+	}
+	return img;
+}
 
-std::vector<double> compute_distribution_l1(cv::Mat img){
+std::vector<double> compute_distribution_l1(cv::Mat img, int index){
 	// divide whole img to 2 by 2 grid
 	std::vector<double> result;
 	int x_start = 0;
 	int y_start = 0;
 	int grid_width = img.size().width / 2;
 	int grid_height = img.size().height / 2;
+	RNG rng(12345);
 	for (int i = 0; i < 2; i++){
 		x_start += i * grid_width;
 		y_start = 0;
 		for (int j = 0; j < 2; j++){
 			y_start += j * grid_height;
-			cv::Mat grid = img(cv::Rect(x_start, y_start, grid_width, grid_height));
+			cv::Mat grid = img(cv::Rect(x_start, y_start, grid_width, grid_height)).clone();
+			int top = (int)(0.1 * grid.rows);
+			int bottom = (int)(0.1 * grid.rows);
+			int left = (int)(0.1 * grid.cols);
+			int right = (int)(0.1 * grid.cols);
+			int borderType = cv::BORDER_CONSTANT;
+			cv::Scalar value(255, 255, 255);
+			cv::Mat grid_dst;
+			cv::copyMakeBorder(grid, grid_dst, top, bottom, left, right, borderType, value);
 			cv::Mat grid_gray;
-			cvtColor(grid, grid_gray, cv::COLOR_BGR2GRAY);
+			cvtColor(grid_dst, grid_gray, cv::COLOR_BGR2GRAY);
+			//cv::imwrite("../data/grid_" + std::to_string(index * 4 + i * 2 + j) + ".png", grid_gray);
 			std::vector<std::vector<cv::Point> > contours;
 			std::vector<cv::Vec4i> hierarchy;
 			cv::findContours(grid_gray, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, cv::Point(0, 0));
-			result.push_back(contours.size());
+			/*cv::Mat drawing = Mat::zeros(grid_gray.size(), CV_8UC3);
+			for (int i = 0; i< contours.size(); i++)
+			{
+				Scalar color = Scalar(rng.uniform(0, 255), rng.uniform(0, 255), rng.uniform(0, 255));
+				drawContours(drawing, contours, i, color, 2, 8, hierarchy, 0, Point());
+			}
+			cv::imwrite("../data/grid_contour_" + std::to_string(index * 4 + i * 2 + j) + ".png", drawing);*/
+			result.push_back(contours.size() - 1);
 		}
 	}
 	return result;
@@ -219,6 +239,7 @@ std::vector<double> compute_distribution_l1(cv::Mat img){
 
 std::vector<double> compute_distribution_l2(cv::Mat img){
 	cv::Mat output(img.size(), CV_8UC3, cv::Scalar(255, 255, 255));
+	std::vector<double> result;
 	// divide whole img to 2 by 2 grid
 	int x_start = 0;
 	int y_start = 0;
@@ -229,30 +250,20 @@ std::vector<double> compute_distribution_l2(cv::Mat img){
 		y_start = 0;
 		for (int j = 0; j < 2; j++){
 			y_start += j * grid_height;
-			cv::Mat grid = img(cv::Rect(x_start, y_start, grid_width, grid_height));
-			cv::Mat result = compute_distribution_l1(grid);
-			result.copyTo(output(cv::Rect(x_start, y_start, grid_width, grid_height)));
+			cv::Mat grid = img(cv::Rect(x_start, y_start, grid_width, grid_height)).clone();
+			int top = (int)(0.1 * grid.rows);
+			int bottom = (int)(0.1 * grid.rows);
+			int left = (int)(0.1 * grid.cols);
+			int right = (int)(0.1 * grid.cols);
+			int borderType = cv::BORDER_CONSTANT;
+			cv::Scalar value(255, 255, 255);
+			cv::Mat grid_dst;
+			cv::copyMakeBorder(grid, grid_dst, top, bottom, left, right, borderType, value);
+			std::vector<double> tmp = compute_distribution_l1(grid_dst, i * 2 + j);
+			result.insert(result.end(), tmp.begin(), tmp.end());
 		}
 	}
-	int thickness = 1;
-	int lineType = 8;
-	cv::Point l1_start(0, output.size().height * 0.5);
-	cv::Point l1_end(output.size().width, output.size().height * 0.5);
-	cv::line(output,
-		l1_start,
-		l1_end,
-		cv::Scalar(0, 0, 255),
-		thickness,
-		lineType);
-	cv::Point l2_start(output.size().width * 0.5, 0);
-	cv::Point l2_end(output.size().width * 0.5, output.size().height);
-	cv::line(output,
-		l2_start,
-		l2_end,
-		cv::Scalar(0, 0, 255),
-		thickness,
-		lineType);
-	return output;
+	return result;
 }
 
 void find_avg_colors(std::string src_filename, std::string classify_filename, std::string dst_filename, std::string output_filename){
