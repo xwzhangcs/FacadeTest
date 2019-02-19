@@ -11,6 +11,7 @@
 #include "cpl_conv.h" // for CPLMalloc()
 #include "ogrsf_frmts.h"
 #include <time.h> 
+#include <numeric>
 #include "../rapidjson/document.h"
 #include "../rapidjson/writer.h"
 #include "../rapidjson/stringbuffer.h"
@@ -91,6 +92,24 @@ void generate_score_file(std::string metafiles, std::string output_path);
 void reshape_chips(std::string meta_data, double target_width, double target_height);
 
 void find_avg_colors(std::string filename);
+
+std::vector<double> compute_distribution_l1(cv::Mat img);
+std::vector<double> compute_distribution_l2(cv::Mat img);
+
+std::pair<double, double> compute_stats(std::vector<double> v){
+	double sum = std::accumulate(std::begin(v), std::end(v), 0.0);
+	double m = sum / v.size();
+
+	double accum = 0.0;
+	std::for_each(std::begin(v), std::end(v), [&](const double d) {
+		accum += (d - m) * (d - m);
+	});
+
+	double stdev = sqrt(accum / (v.size() - 1));
+
+	return std::make_pair(m, stdev);
+}
+
 /**
 * @function main
 */
@@ -98,6 +117,9 @@ int main(int argc, char** argv)
 {
 	//reshape_chips("../data/0005_0031.json", 30.0, 30.0);
 	//generate_score_file("../data/metadata", "../data");
+	/*cv::Mat img = cv::imread("../data/1.png");
+	cv::Mat result = compute_distribution_l2(img);
+	cv::imwrite("../data/1_output.png", result);*/
 	return 0;
 	// hist equalized
 	cv::Mat src, dst;
@@ -147,6 +169,90 @@ int main(int argc, char** argv)
 			}
 		}
 	}
+}
+
+//std::pair<double, double> compute_distribution_l1(cv::Mat img){
+//	int thickness = 1;
+//	int lineType = 8;
+//	cv::Point l1_start(0, img.size().height * 0.5);
+//	cv::Point l1_end(img.size().width, img.size().height * 0.5);
+//	cv::line(img,
+//		l1_start,
+//		l1_end,
+//		cv::Scalar(0, 0, 255),
+//		thickness,
+//		lineType);
+//	cv::Point l2_start(img.size().width * 0.5, 0);
+//	cv::Point l2_end(img.size().width * 0.5, img.size().height);
+//	cv::line(img,
+//		l2_start,
+//		l2_end,
+//		cv::Scalar(0, 0, 255),
+//		thickness,
+//		lineType);
+//	return img;
+//}
+
+std::vector<double> compute_distribution_l1(cv::Mat img){
+	// divide whole img to 2 by 2 grid
+	std::vector<double> result;
+	int x_start = 0;
+	int y_start = 0;
+	int grid_width = img.size().width / 2;
+	int grid_height = img.size().height / 2;
+	for (int i = 0; i < 2; i++){
+		x_start += i * grid_width;
+		y_start = 0;
+		for (int j = 0; j < 2; j++){
+			y_start += j * grid_height;
+			cv::Mat grid = img(cv::Rect(x_start, y_start, grid_width, grid_height));
+			cv::Mat grid_gray;
+			cvtColor(grid, grid_gray, cv::COLOR_BGR2GRAY);
+			std::vector<std::vector<cv::Point> > contours;
+			std::vector<cv::Vec4i> hierarchy;
+			cv::findContours(grid_gray, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, cv::Point(0, 0));
+			result.push_back(contours.size());
+		}
+	}
+	return result;
+}
+
+std::vector<double> compute_distribution_l2(cv::Mat img){
+	cv::Mat output(img.size(), CV_8UC3, cv::Scalar(255, 255, 255));
+	// divide whole img to 2 by 2 grid
+	int x_start = 0;
+	int y_start = 0;
+	int grid_width = img.size().width / 2;
+	int grid_height = img.size().height / 2;
+	for (int i = 0; i < 2; i++){
+		x_start += i * grid_width;
+		y_start = 0;
+		for (int j = 0; j < 2; j++){
+			y_start += j * grid_height;
+			cv::Mat grid = img(cv::Rect(x_start, y_start, grid_width, grid_height));
+			cv::Mat result = compute_distribution_l1(grid);
+			result.copyTo(output(cv::Rect(x_start, y_start, grid_width, grid_height)));
+		}
+	}
+	int thickness = 1;
+	int lineType = 8;
+	cv::Point l1_start(0, output.size().height * 0.5);
+	cv::Point l1_end(output.size().width, output.size().height * 0.5);
+	cv::line(output,
+		l1_start,
+		l1_end,
+		cv::Scalar(0, 0, 255),
+		thickness,
+		lineType);
+	cv::Point l2_start(output.size().width * 0.5, 0);
+	cv::Point l2_end(output.size().width * 0.5, output.size().height);
+	cv::line(output,
+		l2_start,
+		l2_end,
+		cv::Scalar(0, 0, 255),
+		thickness,
+		lineType);
+	return output;
 }
 
 void find_avg_colors(std::string src_filename, std::string classify_filename, std::string dst_filename, std::string output_filename){
