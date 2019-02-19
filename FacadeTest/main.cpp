@@ -118,6 +118,41 @@ int main(int argc, char** argv)
 {
 	//reshape_chips("../data/0005_0031.json", 30.0, 30.0);
 	//generate_score_file("../data/metadata", "../data");
+	// first step
+	std::string path = "../data/segs";
+	std::vector<std::string> segs_files = get_all_files_names_within_folder(path);
+
+	// first step
+	/*std::string path_l1 = "../data/segs_grid_l1";
+	std::string path_l2 = "../data/segs_grid_l2";
+	for (int i = 0; i < segs_files.size(); i++){
+		cv::Mat img = cv::imread(path + "/" + segs_files[i], 1);
+		cv::imwrite(path_l1 + "/" + segs_files[i], draw_grids(img.clone(), 1));
+		cv::imwrite(path_l2 + "/" + segs_files[i], draw_grids(img.clone(), 2));
+	}*/
+
+	// second step
+	std::ofstream out_param("../data/winds_dis.txt");
+	for (int i = 0; i < segs_files.size(); i++){
+		cv::Mat img = cv::imread(path + "/" + segs_files[i], 1);
+		std::vector<double> v_l1 = compute_distribution_l1(img.clone(), 0);
+		std::pair<double, double> result_l1 = compute_stats(v_l1);
+		std::vector<double> v_l2 = compute_distribution_l2(img.clone());
+		std::pair<double, double> result_l2 = compute_stats(v_l2);
+		{
+			// normalize for NN training
+			out_param << segs_files[i];
+			out_param << ",";
+			out_param << result_l1.first;
+			out_param << ",";
+			out_param << result_l1.second;
+			out_param << ",";
+			out_param << result_l2.first;
+			out_param << ",";
+			out_param << result_l2.second;
+			out_param << "\n";
+		}
+	}
 	return 0;
 	// hist equalized
 	cv::Mat src, dst;
