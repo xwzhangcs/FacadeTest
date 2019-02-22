@@ -42,7 +42,9 @@ void Threshold_Demo(int threshold_type, int threshold, string output);
 /// Function header
 std::vector<string> get_all_files_names_within_folder(string folder);
 float compute_win_percentage(string img_name);
-void find_threshold(string img_name);
+int find_threshold(cv::Mat src, bool bground);
+void process_chip(string img_name);
+
 double readNumber(const rapidjson::Value& node, const char* key, double default_value) {
 	if (node.HasMember(key) && node[key].IsDouble()) {
 		return node[key].GetDouble();
@@ -116,6 +118,8 @@ std::pair<double, double> compute_stats(std::vector<double> v){
 */
 int main(int argc, char** argv)
 {
+	//process_chip("../data/test/0002_0.9374_0083_15MAY01160357.png");
+	//return 0;
 	//reshape_chips("../data/0005_0031.json", 30.0, 30.0);
 	//generate_score_file("../data/metadata", "../data");
 	// first step
@@ -123,36 +127,36 @@ int main(int argc, char** argv)
 	std::vector<std::string> segs_files = get_all_files_names_within_folder(path);
 
 	// first step
-	/*std::string path_l1 = "../data/segs_grid_l1";
+	std::string path_l1 = "../data/segs_grid_l1";
 	std::string path_l2 = "../data/segs_grid_l2";
 	for (int i = 0; i < segs_files.size(); i++){
 		cv::Mat img = cv::imread(path + "/" + segs_files[i], 1);
 		cv::imwrite(path_l1 + "/" + segs_files[i], draw_grids(img.clone(), 1));
 		cv::imwrite(path_l2 + "/" + segs_files[i], draw_grids(img.clone(), 2));
-	}*/
+	}
 
 	// second step
-	std::ofstream out_param("../data/winds_dis.txt");
-	for (int i = 0; i < segs_files.size(); i++){
-		cv::Mat img = cv::imread(path + "/" + segs_files[i], 1);
-		std::vector<double> v_l1 = compute_distribution_l1(img.clone(), 0);
-		std::pair<double, double> result_l1 = compute_stats(v_l1);
-		std::vector<double> v_l2 = compute_distribution_l2(img.clone());
-		std::pair<double, double> result_l2 = compute_stats(v_l2);
-		{
-			// normalize for NN training
-			out_param << segs_files[i];
-			out_param << ",";
-			out_param << result_l1.first;
-			out_param << ",";
-			out_param << result_l1.second;
-			out_param << ",";
-			out_param << result_l2.first;
-			out_param << ",";
-			out_param << result_l2.second;
-			out_param << "\n";
-		}
-	}
+	//std::ofstream out_param("../data/winds_dis.txt");
+	//for (int i = 0; i < segs_files.size(); i++){
+	//	cv::Mat img = cv::imread(path + "/" + segs_files[i], 1);
+	//	std::vector<double> v_l1 = compute_distribution_l1(img.clone(), 0);
+	//	std::pair<double, double> result_l1 = compute_stats(v_l1);
+	//	std::vector<double> v_l2 = compute_distribution_l2(img.clone());
+	//	std::pair<double, double> result_l2 = compute_stats(v_l2);
+	//	{
+	//		// normalize for NN training
+	//		out_param << segs_files[i];
+	//		out_param << ",";
+	//		out_param << result_l1.first;
+	//		out_param << ",";
+	//		out_param << result_l1.second;
+	//		out_param << ",";
+	//		out_param << result_l2.first;
+	//		out_param << ",";
+	//		out_param << result_l2.second;
+	//		out_param << "\n";
+	//	}
+	//}
 	return 0;
 	// hist equalized
 	cv::Mat src, dst;
@@ -204,6 +208,85 @@ int main(int argc, char** argv)
 	}
 }
 
+void process_chip(string img_name){
+	// load image
+	cv::Mat src, dst_ehist, dst_classify;
+	src = cv::imread(img_name, 1);
+	cv::Mat hsv;
+	cvtColor(src, hsv, cv::COLOR_BGR2HSV);
+	std::vector<cv::Mat> bgr;   //destination array
+	cv::split(hsv, bgr);//split source 
+	for (int i = 0; i < 3; i++)
+		cv::equalizeHist(bgr[i], bgr[i]);
+	dst_ehist = bgr[2];
+	// threshold classification
+	int threshold = find_threshold(src, false);
+	std::cout << "thrshold is " << threshold << std::endl;
+	cv::threshold(dst_ehist, dst_classify, threshold, max_BINARY_value, cv::THRESH_BINARY);
+	cv::imwrite("../data/dst_classify.png", dst_classify);
+	// generate input image for DNN
+	cv::Scalar bg_color(255, 255, 255); // white back ground
+	cv::Scalar window_color(0, 0, 0); // black for windows
+	cv::Mat scale_img;
+	cv::resize(dst_classify, scale_img, cv::Size(224, 224));
+	// correct the color
+	for (int i = 0; i < scale_img.size().height; i++){
+		for (int j = 0; j < scale_img.size().width; j++){
+			//noise
+			if ((int)scale_img.at<uchar>(i, j) < 255){
+				scale_img.at<uchar>(i, j) = 0;
+			}
+		}
+	}
+	// add padding
+	int padding_size = 10;
+	int borderType = cv::BORDER_CONSTANT;
+	cv::Scalar value(255, 255, 255);
+	cv::Mat grid_dst;
+	cv::copyMakeBorder(scale_img, scale_img, padding_size, padding_size, padding_size, padding_size, borderType, value);
+	cv::imwrite("../data/scale_img_padding.png", scale_img);
+	std::vector<std::vector<cv::Point> > contours;
+	std::vector<cv::Vec4i> hierarchy;
+	/// Detect edges using canny
+	//cv::Canny(scale_img, canny_output, 0, 0, 5);
+	cv::findContours(scale_img, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, cv::Point(0, 0));
+	cv::Mat drawing(scale_img.size(), CV_8UC3, bg_color);
+	RNG rng(12345);
+	for (int i = 0; i< contours.size(); i++)
+	{
+		Scalar color = Scalar(rng.uniform(0, 0), rng.uniform(0, 255), rng.uniform(0, 255));
+		drawContours(drawing, contours, i, color, 1, 8, hierarchy, 0, Point());
+	}
+	std::vector<cv::Rect> boundRect(contours.size());
+	std::vector<cv::RotatedRect> minRect(contours.size());
+	for (int i = 0; i < contours.size(); i++)
+	{
+		boundRect[i] = cv::boundingRect(cv::Mat(contours[i]));
+		minRect[i] = minAreaRect(cv::Mat(contours[i]));
+	}
+	cv::Mat dnn_img(scale_img.size(), CV_8UC3, bg_color);
+	for (int i = 1; i< contours.size(); i++)
+	{
+		if (hierarchy[i][3] != 0) continue;
+		//cv::rectangle(dnn_img, cv::Point(boundRect[i].tl().x + 1, boundRect[i].tl().y + 1), cv::Point(boundRect[i].br().x - 1, boundRect[i].br().y - 1), window_color, -1);
+		//cv::rectangle(dnn_img, cv::Point(boundRect[i].tl().x + 1, boundRect[i].tl().y + 1), cv::Point(boundRect[i].br().x, boundRect[i].br().y), window_color, -1);
+		cv::Point2f rect_points[4]; 
+		minRect[i].points(rect_points);
+		cv::Point vertices[4];
+		for (int i = 0; i < 4; ++i){
+			vertices[i] = rect_points[i];
+		}
+		cv::fillConvexPoly(dnn_img,
+			vertices,
+			4,
+			window_color);
+	}
+	// remove padding
+	dnn_img = dnn_img(cv::Rect(padding_size, padding_size, 224, 224));
+	cv::imwrite("../data/dnn_input.png", dnn_img);
+	cv::imwrite("../data/drawing.png", drawing);
+}
+
 cv::Mat draw_grids(cv::Mat img, int level){
 	int thickness = 1;
 	int lineType = 8;
@@ -245,10 +328,10 @@ std::vector<double> compute_distribution_l1(cv::Mat img, int index){
 		for (int j = 0; j < 2; j++){
 			y_start += j * grid_height;
 			cv::Mat grid = img(cv::Rect(x_start, y_start, grid_width, grid_height)).clone();
-			int top = (int)(0.1 * grid.rows);
-			int bottom = (int)(0.1 * grid.rows);
-			int left = (int)(0.1 * grid.cols);
-			int right = (int)(0.1 * grid.cols);
+			int top = 5;
+			int bottom = 5;
+			int left = 5;
+			int right = 5;
 			int borderType = cv::BORDER_CONSTANT;
 			cv::Scalar value(255, 255, 255);
 			cv::Mat grid_dst;
@@ -259,8 +342,8 @@ std::vector<double> compute_distribution_l1(cv::Mat img, int index){
 			std::vector<std::vector<cv::Point> > contours;
 			std::vector<cv::Vec4i> hierarchy;
 			cv::findContours(grid_gray, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, cv::Point(0, 0));
-			/*cv::Mat drawing = Mat::zeros(grid_gray.size(), CV_8UC3);
-			for (int i = 0; i< contours.size(); i++)
+			cv::Mat drawing = Mat::zeros(grid_gray.size(), CV_8UC3);
+			/*for (int i = 0; i< contours.size(); i++)
 			{
 				Scalar color = Scalar(rng.uniform(0, 255), rng.uniform(0, 255), rng.uniform(0, 255));
 				drawContours(drawing, contours, i, color, 2, 8, hierarchy, 0, Point());
@@ -286,10 +369,10 @@ std::vector<double> compute_distribution_l2(cv::Mat img){
 		for (int j = 0; j < 2; j++){
 			y_start += j * grid_height;
 			cv::Mat grid = img(cv::Rect(x_start, y_start, grid_width, grid_height)).clone();
-			int top = (int)(0.1 * grid.rows);
-			int bottom = (int)(0.1 * grid.rows);
-			int left = (int)(0.1 * grid.cols);
-			int right = (int)(0.1 * grid.cols);
+			int top = 5;
+			int bottom = 5;
+			int left = 5;
+			int right = 5;
 			int borderType = cv::BORDER_CONSTANT;
 			cv::Scalar value(255, 255, 255);
 			cv::Mat grid_dst;
@@ -527,46 +610,35 @@ void Threshold_Demo(int threshold_type, int threshold, string output){
 	cv::imwrite(output, dst);
 }
 
-void find_threshold(string img_name){
-	// hist equalized
-	cv::Mat src, src_gray;
-	src = cv::imread(img_name, CV_LOAD_IMAGE_COLOR);
+int find_threshold(cv::Mat src, bool bground) {
 	//Convert pixel values to other color spaces.
 	cv::Mat hsv;
-	cvtColor(src, hsv, COLOR_BGR2HSV);
+	cvtColor(src, hsv, cv::COLOR_BGR2HSV);
 	std::vector<cv::Mat> bgr;   //destination array
 	cv::split(hsv, bgr);//split source 
 	for (int i = 0; i < 3; i++)
 		cv::equalizeHist(bgr[i], bgr[i]);
-	//cv::merge(bgr, dst);	
 	/// Load an image
-	src_gray = bgr[2];
-	std::vector<int> thresholds;
-	std::vector<float> results;
-	for (int threshold = 40; threshold < 160; threshold += 5){
-		std::cout << "Try threshold: " << threshold << std::endl;
-		thresholds.push_back(threshold);
+	cv::Mat src_gray = bgr[2];
+	for (int threshold = 40; threshold < 160; threshold += 5) {
 		cv::Mat dst;
-		cv::threshold(src_gray, dst, threshold, max_BINARY_value, threshold_type);
-		cv::imwrite("../data/result/" + std::to_string(threshold) + ".png", dst);
-		cv::Mat tmp = cv::imread("../data/result/" + std::to_string(threshold) + ".png", CV_LOAD_IMAGE_COLOR);
+		cv::threshold(src_gray, dst, threshold, max_BINARY_value, cv::THRESH_BINARY);
 		int count = 0;
-		for (int i = 0; i < tmp.size().height; i++){
-			for (int j = 0; j < tmp.size().width; j++){
+		for (int i = 0; i < dst.size().height; i++) {
+			for (int j = 0; j < dst.size().width; j++) {
 				//noise
-				if (tmp.at<cv::Vec3b>(i, j)[0] == 0 && tmp.at<cv::Vec3b>(i, j)[1] == 0 && tmp.at<cv::Vec3b>(i, j)[2] == 0){
+				if ((int)dst.at<uchar>(i, j) == 0) {
 					count++;
 				}
 			}
 		}
-		float percentage = count * 1.0 / (tmp.size().height * tmp.size().width);
-		std::cout << "-----percentage: " << percentage << std::endl;
-		results.push_back(percentage);
+		float percentage = count * 1.0 / (dst.size().height * dst.size().width);
+		std::cout << "percentage is " << percentage << std::endl;
+		if (percentage > 0.25 && !bground)
+			return threshold;
+		if (percentage > 0.30 && bground)
+			return threshold;
 	}
-	for (int i = 0; i < thresholds.size(); i++){
-		std::cout << thresholds[i] << ", " << results[i] << std::endl;
-	}
-	
 }
 
 void correct(cv::Mat &img){
