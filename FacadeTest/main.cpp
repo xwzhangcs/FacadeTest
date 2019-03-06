@@ -113,50 +113,63 @@ std::pair<double, double> compute_stats(std::vector<double> v){
 	return std::make_pair(m, stdev);
 }
 
+/// Global variables
+Mat erosion_dst, dilation_dst;
+
+int erosion_elem = 0;
+int erosion_size = 0;
+int dilation_elem = 1;
+int dilation_size = 1;
+int const max_elem = 2;
+int const max_kernel_size = 21;
+
+/** Function Headers */
+void Erosion(int, void*);
+void Dilation(int, void*);
+
 /**
 * @function main
 */
 int main(int argc, char** argv)
 {
-	//process_chip("../data/test/0002_0.9374_0083_15MAY01160357.png");
-	//return 0;
-	//reshape_chips("../data/0005_0031.json", 30.0, 30.0);
-	//generate_score_file("../data/metadata", "../data");
-	// first step
-	std::string path = "../data/segs";
-	std::vector<std::string> segs_files = get_all_files_names_within_folder(path);
+	{
+		/// Load an image
+		src = imread("../data/1.png");
 
-	// first step
-	std::string path_l1 = "../data/segs_grid_l1";
-	std::string path_l2 = "../data/segs_grid_l2";
-	for (int i = 0; i < segs_files.size(); i++){
-		cv::Mat img = cv::imread(path + "/" + segs_files[i], 1);
-		cv::imwrite(path_l1 + "/" + segs_files[i], draw_grids(img.clone(), 1));
-		cv::imwrite(path_l2 + "/" + segs_files[i], draw_grids(img.clone(), 2));
+		if (!src.data)
+		{
+			return -1;
+		}
+
+		/// Create windows
+		namedWindow("Erosion Demo", CV_WINDOW_AUTOSIZE);
+		namedWindow("Dilation Demo", CV_WINDOW_AUTOSIZE);
+		cvMoveWindow("Dilation Demo", src.cols, 0);
+
+		/// Create Erosion Trackbar
+		createTrackbar("Element:\n 0: Rect \n 1: Cross \n 2: Ellipse", "Erosion Demo",
+			&erosion_elem, max_elem,
+			Erosion);
+
+		createTrackbar("Kernel size:\n 2n +1", "Erosion Demo",
+			&erosion_size, max_kernel_size,
+			Erosion);
+
+		/// Create Dilation Trackbar
+		createTrackbar("Element:\n 0: Rect \n 1: Cross \n 2: Ellipse", "Dilation Demo",
+			&dilation_elem, max_elem,
+			Dilation);
+
+		createTrackbar("Kernel size:\n 2n +1", "Dilation Demo",
+			&dilation_size, max_kernel_size,
+			Dilation);
+
+		/// Default start
+		Erosion(0, 0);
+		Dilation(1, 0);
+
+		waitKey(0);
 	}
-
-	// second step
-	//std::ofstream out_param("../data/winds_dis.txt");
-	//for (int i = 0; i < segs_files.size(); i++){
-	//	cv::Mat img = cv::imread(path + "/" + segs_files[i], 1);
-	//	std::vector<double> v_l1 = compute_distribution_l1(img.clone(), 0);
-	//	std::pair<double, double> result_l1 = compute_stats(v_l1);
-	//	std::vector<double> v_l2 = compute_distribution_l2(img.clone());
-	//	std::pair<double, double> result_l2 = compute_stats(v_l2);
-	//	{
-	//		// normalize for NN training
-	//		out_param << segs_files[i];
-	//		out_param << ",";
-	//		out_param << result_l1.first;
-	//		out_param << ",";
-	//		out_param << result_l1.second;
-	//		out_param << ",";
-	//		out_param << result_l2.first;
-	//		out_param << ",";
-	//		out_param << result_l2.second;
-	//		out_param << "\n";
-	//	}
-	//}
 	return 0;
 	// hist equalized
 	cv::Mat src, dst;
@@ -206,6 +219,40 @@ int main(int argc, char** argv)
 			}
 		}
 	}
+}
+
+/**  @function Erosion  */
+void Erosion(int, void*)
+{
+	int erosion_type;
+	if (erosion_elem == 0){ erosion_type = MORPH_RECT; }
+	else if (erosion_elem == 1){ erosion_type = MORPH_CROSS; }
+	else if (erosion_elem == 2) { erosion_type = MORPH_ELLIPSE; }
+
+	Mat element = getStructuringElement(erosion_type,
+		Size(2 * erosion_size + 1, 2 * erosion_size + 1),
+		Point(erosion_size, erosion_size));
+
+	/// Apply the erosion operation
+	erode(src, erosion_dst, element);
+	imshow("Erosion Demo", erosion_dst);
+}
+
+/** @function Dilation */
+void Dilation(int, void*)
+{
+	int dilation_type;
+	if (dilation_elem == 0){ dilation_type = MORPH_RECT; }
+	else if (dilation_elem == 1){ dilation_type = MORPH_CROSS; }
+	else if (dilation_elem == 2) { dilation_type = MORPH_ELLIPSE; }
+
+	Mat element = getStructuringElement(dilation_type,
+		Size(2 * dilation_size + 1, 2 * dilation_size + 1),
+		Point(dilation_size, dilation_size));
+	/// Apply the dilation operation
+	dilate(src, dilation_dst, element);
+	imshow("Dilation Demo", dilation_dst);
+	imwrite("../data/dilation.png", dilation_dst);
 }
 
 void process_chip(string img_name){
